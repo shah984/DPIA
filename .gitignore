@@ -1,0 +1,10 @@
+.env
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+dpia_docs/
+__pycache__/
+*.pyc
+~$*
+.DS_Store
