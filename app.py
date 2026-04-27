@@ -103,7 +103,7 @@ if st.button("Process Documents", type="primary", disabled=not uploaded_files):
 
         with st.spinner("Extracting DPIA-relevant information (this may take a moment)…"):
             try:
-                extracted = extract_dpia_fields(document_text, template_text, guidance_text)
+                extracted, sources = extract_dpia_fields(document_text, template_text, guidance_text)
             except ValueError as exc:
                 st.error(f"Failed to parse the model's response:\n\n```\n{exc}\n```")
                 extracted = None
@@ -122,6 +122,7 @@ if st.button("Process Documents", type="primary", disabled=not uploaded_files):
                     output_path = generate_dpia_docx(plan, stem)
                     st.session_state["results"] = {
                         "extracted": extracted,
+                        "sources": sources,
                         "plan": plan,
                         "output_path": str(output_path),
                     }
@@ -139,6 +140,7 @@ def _colour_status(val: str) -> str:
 
 if "results" in st.session_state:
     extracted   = st.session_state["results"]["extracted"]
+    sources     = st.session_state["results"]["sources"]
     plan        = st.session_state["results"]["plan"]
     output_path = st.session_state["results"]["output_path"]
 
@@ -161,11 +163,12 @@ if "results" in st.session_state:
     rows = []
     for key, label, _ in DPIA_FIELDS:
         value = extracted.get(key)
+        source = sources.get(key) or ""
         if value:
             preview = str(value)[:120] + ("…" if len(str(value)) > 120 else "")
-            rows.append({"Field": label, "Status": "Populated", "Extracted value": preview})
+            rows.append({"Field": label, "Status": "Populated", "Extracted value": preview, "Source": source})
         else:
-            rows.append({"Field": label, "Status": "Blank", "Extracted value": ""})
+            rows.append({"Field": label, "Status": "Blank", "Extracted value": "", "Source": ""})
 
     df_text = pd.DataFrame(rows)
     st.dataframe(
@@ -178,12 +181,13 @@ if "results" in st.session_state:
     yesno_rows = []
     for key, label in YESNO_FIELDS:
         value = extracted.get(key)
+        source = sources.get(key) or ""
         if value == "yes":
-            yesno_rows.append({"Question": label, "Answer": "Yes"})
+            yesno_rows.append({"Question": label, "Answer": "Yes", "Source": source})
         elif value == "no":
-            yesno_rows.append({"Question": label, "Answer": "No"})
+            yesno_rows.append({"Question": label, "Answer": "No", "Source": source})
         else:
-            yesno_rows.append({"Question": label, "Answer": "Not found"})
+            yesno_rows.append({"Question": label, "Answer": "Not found", "Source": ""})
 
     df_yesno = pd.DataFrame(yesno_rows)
     st.dataframe(

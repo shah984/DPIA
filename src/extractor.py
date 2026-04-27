@@ -209,9 +209,9 @@ _YESNO_BLOCK = "\n".join(
 )
 
 _JSON_SHAPE = (
-    "{"
-    + ", ".join(f'"{k}": "..."' for k, _, _ in DPIA_FIELDS[:6])
-    + ', "q1_personal_data": "yes/no/null", ... }'
+    '{"project_title": {"value": "UTSS Project", "source": "01_Business_Case.docx"}, '
+    '"iao_name": {"value": null, "source": null}, '
+    '"q1_personal_data": {"value": "yes", "source": "02_Technical_Design.docx"}, ...}'
 )
 
 
@@ -255,32 +255,46 @@ EXTRACTION RULES — follow these strictly:
 1. Read ALL uploaded documents carefully before extracting anything.
 2. Extract ONLY information that is explicitly stated in the uploaded documents.
    Do NOT invent, infer, or guess any values.
-3. For text fields: if relevant information exists, extract it verbatim or
-   summarised accurately. If not found, use null.
-4. For yes/no fields: only answer "yes" or "no" if the documents explicitly
-   state or clearly imply the answer. Otherwise use null.
-5. Do not mix information between fields.
-6. Return ONLY a single valid JSON object containing ALL Part A and Part B keys.
+3. For every field (text and yes/no), return an object with two keys:
+     "value"  — the extracted content, "yes"/"no", or null if not found
+     "source" — the filename (e.g. "01_Business_Case.docx") where the information
+                was found. If value is null, source must also be null.
+                If information came from multiple files, comma-separate the filenames.
+4. For text fields: if relevant information exists, extract it verbatim or
+   summarised accurately. If not found, set value to null.
+5. For yes/no fields: only answer "yes" or "no" if the documents explicitly
+   state or clearly imply the answer. Otherwise set value to null.
+6. Do not mix information between fields.
+7. Return ONLY a single valid JSON object containing ALL Part A and Part B keys.
    No markdown fences, no explanation, no text before or after the JSON.
-7. Use null (JSON null, not the string "null") for any field not found.
+8. Use null (JSON null, not the string "null") for any field not found.
 
-Example output shape (keys only):
+Example output shape:
 {_JSON_SHAPE}
 """
 
 
 # ── Public function ────────────────────────────────────────────────────────────
 
+def _parse_field(raw: Any) -> tuple[Any, str | None]:
+    """Unpack a {value, source} dict returned by the LLM, or fall back to plain value."""
+    if isinstance(raw, dict):
+        return raw.get("value"), raw.get("source") or None
+    return raw, None
+
+
 def extract_dpia_fields(
     document_text: str,
     template_text: str,
     guidance_text: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, str | None]]:
     """
     Send all uploaded document text to the LLM and extract DPIA-relevant fields.
 
     Returns:
-        dict mapping each DPIA field key to its extracted value (or None).
+        (extracted, sources) — both dicts keyed by field key.
+        extracted maps each key to its value (or None).
+        sources maps each key to the source filename (or None).
 
     Raises:
         ValueError: if the LLM response cannot be parsed as valid JSON.
@@ -328,21 +342,27 @@ def extract_dpia_fields(
             f"Expected a JSON object but got {type(data).__name__}."
         )
 
-    # Normalise text fields: ensure every defined key exists (missing → None)
     result: dict[str, Any] = {}
+    sources: dict[str, str | None] = {}
+
+    # Normalise text fields
     for key, _, _ in DPIA_FIELDS:
-        value = data.get(key)
+        value, source = _parse_field(data.get(key))
         if value in (None, "", "null", "N/A", "n/a"):
             result[key] = None
+            sources[key] = None
         else:
             result[key] = value
+            sources[key] = source
 
     # Normalise yes/no fields: only accept "yes" or "no", anything else → None
     for key, _ in YESNO_FIELDS:
-        value = data.get(key)
+        value, source = _parse_field(data.get(key))
         if isinstance(value, str) and value.strip().lower() in ("yes", "no"):
             result[key] = value.strip().lower()
+            sources[key] = source
         else:
             result[key] = None
+            sources[key] = None
 
-    return result
+    return result, sources
